@@ -22,7 +22,7 @@ internal sealed class IntelCpu : GenericCpu
     private readonly Sensor _coreVoltage;
     private readonly Sensor[] _distToTjMaxTemperatures;
 
-    private readonly uint[] _energyStatusMsrs = { MSR_PKG_ENERGY_STATUS, MSR_PP0_ENERGY_STATUS, MSR_PP1_ENERGY_STATUS, MSR_DRAM_ENERGY_STATUS };
+    private readonly uint[] _energyStatusMsrs = { MSR_PKG_ENERGY_STATUS, MSR_PP0_ENERGY_STATUS, MSR_PP1_ENERGY_STATUS, MSR_DRAM_ENERGY_STATUS, MSR_PLATFORM_ENERGY_STATUS };
     private readonly uint[] _lastEnergyConsumed;
     private readonly DateTime[] _lastEnergyTime;
 
@@ -222,6 +222,11 @@ internal sealed class IntelCpu : GenericCpu
                             tjMax = GetTjMaxFromMsr();
                             break;
 
+                        case 0xC6: // Intel Core Ultra 7 200 Series ArrowLake
+                            _microArchitecture = MicroArchitecture.ArrowLake;
+                            tjMax = GetTjMaxFromMsr();
+                            break;
+
                         default:
                             _microArchitecture = MicroArchitecture.Unknown;
                             tjMax = Floats(100);
@@ -268,6 +273,7 @@ internal sealed class IntelCpu : GenericCpu
                 break;
             case MicroArchitecture.Airmont:
             case MicroArchitecture.AlderLake:
+            case MicroArchitecture.ArrowLake:
             case MicroArchitecture.Broadwell:
             case MicroArchitecture.CannonLake:
             case MicroArchitecture.CometLake:
@@ -382,6 +388,7 @@ internal sealed class IntelCpu : GenericCpu
 
         if (_microArchitecture is MicroArchitecture.Airmont or
             MicroArchitecture.AlderLake or
+            MicroArchitecture.ArrowLake or
             MicroArchitecture.Broadwell or
             MicroArchitecture.CannonLake or
             MicroArchitecture.CometLake or
@@ -416,7 +423,7 @@ internal sealed class IntelCpu : GenericCpu
 
             if (EnergyUnitsMultiplier != 0)
             {
-                string[] powerSensorLabels = { "CPU Package", "CPU Cores", "CPU Graphics", "CPU Memory" };
+                string[] powerSensorLabels = { "CPU Package", "CPU Cores", "CPU Graphics", "CPU Memory", "CPU Platform" };
 
                 for (int i = 0; i < _energyStatusMsrs.Length; i++)
                 {
@@ -494,7 +501,8 @@ internal sealed class IntelCpu : GenericCpu
             MSR_PKG_ENERGY_STATUS,
             MSR_DRAM_ENERGY_STATUS,
             MSR_PP0_ENERGY_STATUS,
-            MSR_PP1_ENERGY_STATUS
+            MSR_PP1_ENERGY_STATUS,
+            MSR_PLATFORM_ENERGY_STATUS,
         };
     }
 
@@ -583,6 +591,7 @@ internal sealed class IntelCpu : GenericCpu
                             break;
                         case MicroArchitecture.Airmont:
                         case MicroArchitecture.AlderLake:
+                        case MicroArchitecture.ArrowLake:
                         case MicroArchitecture.Broadwell:
                         case MicroArchitecture.CannonLake:
                         case MicroArchitecture.CometLake:
@@ -705,6 +714,7 @@ internal sealed class IntelCpu : GenericCpu
     private const uint MSR_PLATFORM_INFO = 0xCE;
     private const uint MSR_PP0_ENERGY_STATUS = 0x639;
     private const uint MSR_PP1_ENERGY_STATUS = 0x641;
+    private const uint MSR_PLATFORM_ENERGY_STATUS = 0x64D;
 
     private const uint MSR_RAPL_POWER_UNIT = 0x606;
     // ReSharper restore InconsistentNaming
