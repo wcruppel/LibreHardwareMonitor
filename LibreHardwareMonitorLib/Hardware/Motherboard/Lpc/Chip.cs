@@ -1,4 +1,4 @@
-﻿// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 // If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 // Copyright (C) LibreHardwareMonitor and Contributors.
 // Partial Copyright (C) Michael Möller <mmoeller@openhardwaremonitor.org> and Contributors.
@@ -32,6 +32,7 @@ internal enum Chip : ushort
     IT8625E = 0x8625,
     IT8628E = 0x8628,
     IT8631E = 0x8631,
+    IT8638E = 0x8638,
     IT8655E = 0x8655,
     IT8665E = 0x8665,
     IT8686E = 0x8686,
@@ -52,6 +53,7 @@ internal enum Chip : ushort
     IT8792E = 0x8733, // Could also be IT8791E, IT8795E
     IT87952E = 0x8695,
 
+    NCT5585D = 0xFFF0, // Chip reports 0xD42A but that's in use
     NCT610XD = 0xC452,
     NCT6771F = 0xB470,
     NCT6776F = 0xC330,
@@ -63,6 +65,7 @@ internal enum Chip : ushort
     NCT6795D = 0xD352,
     NCT6796D = 0xD423,
     NCT6796DR = 0xD42A,
+    NCT6796DS = 0xFFF1, // Chip reports 0xD802 but that's in use
     NCT6797D = 0xD451,
     NCT6798D = 0xD42B,
     NCT6686D = 0xD440,
@@ -107,6 +110,7 @@ internal class ChipName
             case Chip.IT8625E: return "ITE IT8625E";
             case Chip.IT8628E: return "ITE IT8628E";
             case Chip.IT8631E: return "ITE IT8631E";
+            case Chip.IT8638E: return "ITE IT8638E";
             case Chip.IT8655E: return "ITE IT8655E";
             case Chip.IT8665E: return "ITE IT8665E";
             case Chip.IT8686E: return "ITE IT8686E";
@@ -127,6 +131,7 @@ internal class ChipName
             case Chip.IT8792E: return "ITE IT8791E/IT8792E/IT8795E";
             case Chip.IT87952E: return "ITE IT87952E";
 
+            case Chip.NCT5585D: return "Nuvoton NCT5585D";
             case Chip.NCT610XD: return "Nuvoton NCT6102D/NCT6104D/NCT6106D";
             case Chip.NCT6771F: return "Nuvoton NCT6771F";
             case Chip.NCT6776F: return "Nuvoton NCT6776F";
@@ -138,6 +143,7 @@ internal class ChipName
             case Chip.NCT6795D: return "Nuvoton NCT6795D";
             case Chip.NCT6796D: return "Nuvoton NCT6796D";
             case Chip.NCT6796DR: return "Nuvoton NCT6796D-R";
+            case Chip.NCT6796DS: return "Nuvoton NCT6796D-S";
             case Chip.NCT6797D: return "Nuvoton NCT6797D";
             case Chip.NCT6798D: return "Nuvoton NCT6798D";
             case Chip.NCT6799D: return "Nuvoton NCT6799D";

@@ -205,6 +205,10 @@ public abstract class EmbeddedController : Hardware
             BoardFamily.Intel600,
             ECSensor.TempTSensor,
             ECSensor.TempVrm),
+        new(Model.ROG_STRIX_Z690_G_GAMING_WIFI,
+            BoardFamily.Intel600,
+            ECSensor.TempTSensor,
+            ECSensor.TempVrm),
         new(Model.ROG_MAXIMUS_Z690_HERO,
             BoardFamily.Intel600,
             ECSensor.TempTSensor,
@@ -285,6 +289,48 @@ public abstract class EmbeddedController : Hardware
             ECSensor.TempCPUPackage,
             ECSensor.TempMB,
             ECSensor.TempVrm),
+        new(Model.FRANMDCP05,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMDCP07,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMECP02,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMECP05,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMECP06,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMZCP07,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMZCP09,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMFCP02,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMFCP06,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRAPMACP03,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRAPMACP05,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMGCP05,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMGCP07,
+            BoardFamily.CrOS,
+            null),
+        new(Model.FRANMGCP09,
+            BoardFamily.CrOS,
+            null)
     };
 
     private static readonly Dictionary<BoardFamily, Dictionary<ECSensor, EmbeddedControllerSource>> _knownSensors = new()
@@ -454,6 +500,12 @@ public abstract class EmbeddedController : Hardware
         }
 
         BoardInfo board = boards[0];
+
+        if (board.Family == BoardFamily.CrOS)
+        {
+            return ChromeOSEmbeddedController.Create(settings);
+        }
+
         IEnumerable<EmbeddedControllerSource> sources = board.Sensors.Select(ecs => _knownSensors[board.Family][ecs]);
 
         return Environment.OSVersion.Platform switch
@@ -474,16 +526,19 @@ public abstract class EmbeddedController : Hardware
         int readRegister = 0;
         for (int si = 0; si < _sensors.Count; ++si)
         {
+            int littleEndian    = _sources[si].IsLittleEndian ? 1 : 0;
+            int bigEndian       = _sources[si].IsLittleEndian ? 0 : 1;
+
             int val = _sources[si].Size switch
             {
                 1 => _sources[si].Type switch { SensorType.Temperature => unchecked((sbyte)_data[readRegister]), _ => _data[readRegister] },
-                2 => unchecked((short)((_data[readRegister] << 8) + _data[readRegister + 1])),
+                2 => unchecked((short)((_data[readRegister + littleEndian] << 8) + _data[readRegister + bigEndian])),
                 _ => 0
             };
 
             readRegister += _sources[si].Size;
 
-            _sensors[si].Value = val != _sources[si].Blank ? val * _sources[si].Factor : null;
+            _sensors[si].Value = val != _sources[si].Blank ? (val * _sources[si].Factor) + _sources[si].Offset : null;
         }
     }
 
@@ -612,7 +667,8 @@ public abstract class EmbeddedController : Hardware
         Intel300,
         Intel400,
         Intel600,
-        Intel700
+        Intel700,
+        CrOS
     }
 
     private struct BoardInfo

@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -18,7 +19,6 @@ using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Storage;
 using LibreHardwareMonitor.UI.Themes;
 using LibreHardwareMonitor.Utilities;
-using LibreHardwareMonitor.Wmi;
 
 namespace LibreHardwareMonitor.UI;
 
@@ -54,7 +54,6 @@ public sealed partial class MainForm : Form
     private readonly SystemTray _systemTray;
     private readonly UnitManager _unitManager;
     private readonly UpdateVisitor _updateVisitor = new();
-    private readonly WmiProvider _wmiProvider;
 
     private int _delayCount;
     private Form _plotForm;
@@ -151,7 +150,6 @@ public sealed partial class MainForm : Form
             treeView.RowHeight = Math.Max(treeView.Font.Height + 1, 18);
             _gadget = new SensorGadget(_computer, _settings, _unitManager);
             _gadget.HideShowCommand += HideShowClick;
-            _wmiProvider = new WmiProvider(_computer);
         }
 
         treeView.ShowNodeToolTips = true;
@@ -159,10 +157,62 @@ public sealed partial class MainForm : Form
         nodeTextBoxText.ToolTipProvider = tooltipProvider;
         nodeTextBoxValue.ToolTipProvider = tooltipProvider;
         _logger = new Logger(_computer);
+        var saved = _settings.GetValue("logger.fileRotation", 0); // 0 = PerSession, 1 = Daily.
+        _logger.FileRotationMethod = (LoggerFileRotation)Math.Max(0, Math.Min(saved, 1));
+        perSessionFileRotationMenuItem.Checked = _logger.FileRotationMethod == LoggerFileRotation.PerSession;
+        dailyFileRotationMenuItem.Checked = _logger.FileRotationMethod == LoggerFileRotation.Daily;
 
         _computer.HardwareAdded += HardwareAdded;
         _computer.HardwareRemoved += HardwareRemoved;
+
+        if (PawnIo.PawnIo.IsInstalled)
+        {
+            if (PawnIo.PawnIo.Version < new Version(2, 0, 0, 0))
+            {
+                DialogResult result = MessageBox.Show("PawnIO is outdated, do you want to update it?", nameof(LibreHardwareMonitor), MessageBoxButtons.OKCancel);
+                if (result == DialogResult.OK)
+                    InstallPawnIO();
+            }
+        }
+        else
+        {
+            DialogResult result = MessageBox.Show("PawnIO is not installed, do you want to install it?", nameof(LibreHardwareMonitor), MessageBoxButtons.OKCancel);
+            if (result == DialogResult.OK)
+                InstallPawnIO();
+        }
+
         _computer.Open();
+
+        static void InstallPawnIO()
+        {
+            string path = ExtractPawnIO();
+            if (!string.IsNullOrEmpty(path))
+            {
+                var process = Process.Start(new ProcessStartInfo(path, "-install"));
+                process?.WaitForExit();
+
+                File.Delete(path);
+            }
+        }
+
+        static string ExtractPawnIO()
+        {
+            string destination = Path.Combine(Directory.GetCurrentDirectory(), "PawnIO_setup.exe");
+
+            try
+            {
+
+                using Stream resourceStream = typeof(MainForm).Assembly.GetManifestResourceStream("LibreHardwareMonitor.Resources.PawnIO_setup.exe");
+                using FileStream fileStream = new(destination, FileMode.Create, FileAccess.Write);
+                resourceStream.CopyTo(fileStream);
+
+                return destination;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         backgroundUpdater.DoWork += BackgroundUpdater_DoWork;
         timer.Enabled = true;
@@ -179,7 +229,7 @@ public sealed partial class MainForm : Form
         UserOption showMax = new("maxMenuItem", true, maxMenuItem, _settings);
         showMax.Changed += delegate { treeView.Columns[3].IsVisible = showMax.Value; };
 
-        var _ = new UserOption("startMinMenuItem", false, startMinMenuItem, _settings);
+        _ = new UserOption("startMinMenuItem", false, startMinMenuItem, _settings);
         _minimizeToTray = new UserOption("minTrayMenuItem", true, minTrayMenuItem, _settings);
         _minimizeToTray.Changed += delegate { _systemTray.IsMainIconEnabled = _minimizeToTray.Value; };
 
@@ -382,11 +432,11 @@ public sealed partial class MainForm : Form
             switch (_throttleAtaUpdate.Value)
             {
                 case true:
-                    AtaStorage.ThrottleInterval = TimeSpan.FromSeconds(30);
+                    StorageDevice.ThrottleInterval = TimeSpan.FromSeconds(30);
                     break;
 
                 case false:
-                    AtaStorage.ThrottleInterval = TimeSpan.Zero;
+                    StorageDevice.ThrottleInterval = TimeSpan.Zero;
                     break;
             }
         };
@@ -879,12 +929,9 @@ public sealed partial class MainForm : Form
         treeView.Invalidate();
         _systemTray.Redraw();
         _gadget?.Redraw();
-        _wmiProvider?.Update();
 
         if (!backgroundUpdater.IsBusy)
             backgroundUpdater.RunWorkerAsync();
-
-        RestoreCollapsedNodeState(treeView);
     }
 
     private void SaveConfiguration()
@@ -1306,6 +1353,28 @@ public sealed partial class MainForm : Form
         treeView.Columns[0].Width = newWidth;
     }
 
+    private void TreeView_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (treeView.SelectedNode != null)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.Right:
+                    if (treeView.SelectedNode.Tag is IExpandPersistNode expandPersistNodeR)
+                    {
+                        expandPersistNodeR.Expanded = true;
+                    }
+                    return;
+                case Keys.Left:
+                    if (treeView.SelectedNode.Tag is IExpandPersistNode expandPersistNodeL)
+                    {
+                        expandPersistNodeL.Expanded = false;
+                    }
+                    return;
+            }
+        }
+    }
+
     private void TreeView_ColumnWidthChanged(TreeColumn column)
     {
         int index = treeView.Columns.IndexOf(column);
@@ -1341,6 +1410,7 @@ public sealed partial class MainForm : Form
         dailyFileRotationMenuItem.Checked = false;
         perSessionFileRotationMenuItem.Checked = true;
         _logger.FileRotationMethod = LoggerFileRotation.PerSession;
+        _settings.SetValue("logger.fileRotation", (int)LoggerFileRotation.PerSession);
     }
 
     private void dailyFileRotationMenuItem_Click(object sender, EventArgs e)
@@ -1348,5 +1418,6 @@ public sealed partial class MainForm : Form
         dailyFileRotationMenuItem.Checked = true;
         perSessionFileRotationMenuItem.Checked = false;
         _logger.FileRotationMethod = LoggerFileRotation.Daily;
+        _settings.SetValue("logger.fileRotation", (int)LoggerFileRotation.Daily);
     }
 }

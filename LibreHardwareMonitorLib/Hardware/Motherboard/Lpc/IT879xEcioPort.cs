@@ -10,15 +10,13 @@ namespace LibreHardwareMonitor.Hardware.Motherboard.Lpc;
 
 internal class IT879xEcioPort
 {
-    public IT879xEcioPort(ushort registerPort, ushort valuePort)
+    private const ushort EcioRegisterPort = 0x3F4;
+    private const ushort EcioValuePort = 0x3F0;
+
+    public IT879xEcioPort(LpcPort lpcPort)
     {
-        RegisterPort = registerPort;
-        ValuePort = valuePort;
+        _lpcPort = lpcPort;
     }
-
-    public ushort RegisterPort { get; }
-
-    public ushort ValuePort { get; }
 
     public bool Read(ushort offset, out byte value)
     {
@@ -68,7 +66,7 @@ internal class IT879xEcioPort
             return false;
         }
 
-        Ring0.WriteIoPort(RegisterPort, value);
+        _lpcPort.WriteIoPort(EcioRegisterPort, value);
         return true;
     }
 
@@ -79,7 +77,7 @@ internal class IT879xEcioPort
             return false;
         }
 
-        Ring0.WriteIoPort(ValuePort, value);
+        _lpcPort.WriteIoPort(EcioValuePort, value);
         return true;
     }
 
@@ -91,49 +89,39 @@ internal class IT879xEcioPort
             return false;
         }
 
-        value = Ring0.ReadIoPort(ValuePort);
+        value = _lpcPort.ReadIoPort(EcioValuePort);
         return true;
     }
 
     private bool WaitIBE()
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
-        try
+
+        while ((_lpcPort.ReadIoPort(EcioRegisterPort) & 2) != 0)
         {
-            while ((Ring0.ReadIoPort(RegisterPort) & 2) != 0)
+            if (stopwatch.ElapsedMilliseconds > WAIT_TIMEOUT)
             {
-                if (stopwatch.ElapsedMilliseconds > WAIT_TIMEOUT)
-                {
-                    return false;
-                }
+                return false;
             }
-            return true;
         }
-        finally
-        {
-            stopwatch.Stop();
-        }
+
+        return true;
     }
 
     private bool WaitOBF()
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
-        try
+        while ((_lpcPort.ReadIoPort(EcioRegisterPort) & 1) == 0)
         {
-            while ((Ring0.ReadIoPort(RegisterPort) & 1) == 0)
+            if (stopwatch.ElapsedMilliseconds > WAIT_TIMEOUT)
             {
-                if (stopwatch.ElapsedMilliseconds > WAIT_TIMEOUT)
-                {
-                    return false;
-                }
+                return false;
             }
-            return true;
         }
-        finally
-        {
-            stopwatch.Stop();
-        }
+
+        return true;
     }
 
     private const long WAIT_TIMEOUT = 1000L;
+    private readonly LpcPort _lpcPort;
 }

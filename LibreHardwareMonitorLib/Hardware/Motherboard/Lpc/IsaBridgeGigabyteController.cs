@@ -5,9 +5,8 @@
 // All Rights Reserved.
 
 using System;
-using System.Runtime.InteropServices;
 using System.Threading;
-using LibreHardwareMonitor.Hardware.Cpu;
+using LibreHardwareMonitor.PawnIo;
 
 namespace LibreHardwareMonitor.Hardware.Motherboard.Lpc;
 
@@ -19,23 +18,64 @@ namespace LibreHardwareMonitor.Hardware.Motherboard.Lpc;
 /// </summary>
 internal class IsaBridgeGigabyteController : IGigabyteController
 {
-    private const uint ControllerAddressRange = 0xFF;
+    private readonly IsaBridgeEc _isaBridgeEc;
+    private readonly MMIOMapping _mmio;
+    private bool? _enabled;
+    private bool? _restoreEnabled;
     private const int ControllerEnableRegister = 0x47;
     private const uint ControllerFanControlArea = 0x900;
 
-    /// <summary>
-    /// Base address in PCI RAM that maps to the EC's RAM
-    /// </summary>
-    private readonly uint _controllerBaseAddress;
-
-    private readonly Vendor _vendor;
-
-    private bool? _initialState;
-
-    public IsaBridgeGigabyteController(uint address, Vendor vendor)
+    private IsaBridgeGigabyteController(IsaBridgeEc isaBridgeEc, MMIOMapping mmio)
     {
-        _controllerBaseAddress = address;
-        _vendor = vendor;
+        _isaBridgeEc = isaBridgeEc;
+        _mmio = mmio;
+    }
+
+    public static bool TryCreate(out IsaBridgeGigabyteController isaBridgeGigabyteController)
+    {
+        isaBridgeGigabyteController = null;
+        IsaBridgeEc _isaBridgeEc = new IsaBridgeEc();
+
+        // find
+        if (!_isaBridgeEc.FindSuperIoMMIO(out _, out MMIOMapping secondMmio))
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+        if (!_isaBridgeEc.GetOriginalState(out MMIOState originalState))
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+        if (!EnterMmio(_isaBridgeEc, originalState))
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+        // if we get 0xFF, we can't use the IsaBridgeGigabyteController
+        if (!_isaBridgeEc.ReadMmio(
+            superIoIndex: secondMmio.Index,
+            offset: ControllerFanControlArea + ControllerEnableRegister,
+            size: 1,
+            value: out byte readvaluebyte) ||
+            readvaluebyte == 0xFF)
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+        if (!ExitMmio(_isaBridgeEc))
+        {
+            _isaBridgeEc.Close();
+            return false;
+        }
+
+        isaBridgeGigabyteController = new IsaBridgeGigabyteController(_isaBridgeEc, secondMmio);
+
+        return true;
     }
 
     /// <summary>
@@ -45,147 +85,76 @@ internal class IsaBridgeGigabyteController : IGigabyteController
     /// <returns>true on success</returns>
     public bool Enable(bool enabled)
     {
-        return _vendor switch
+        bool isEntered = false;
+
+        // use try finally + isEntered to get a safe
+        // EnterMmio and ExitMmio pattern
+        try
         {
-            Vendor.Intel => IntelEnable(enabled),
-            Vendor.AMD => AmdEnable(enabled),
-            _ => false
-        };
-    }
+            // get initial state if missing
+            if (_enabled is null)
+            {
+                isEntered = EnterMmio(_isaBridgeEc);
+                if (!isEntered)
+                {
+                    return false;
+                }
 
-    private bool IntelEnable(bool enabled)
-    {
-        if (!Mutexes.WaitPciBus(10))
-            return false;
+                if (!_isaBridgeEc.ReadMmio(
+                      superIoIndex: _mmio.Index,
+                      offset: ControllerFanControlArea + ControllerEnableRegister,
+                      size: 1,
+                      value: out byte readvaluebyte))
+                {
+                    return false;
+                }
 
-        bool result = false;
+                bool readValue = Convert.ToBoolean(readvaluebyte);
+                _restoreEnabled ??= readValue;
+                _enabled = Convert.ToBoolean(readvaluebyte);
+            }
 
-        uint intelIsaBridgeAddress = Ring0.GetPciAddress(0x0, 0x1F, 0x0);
+            // if already enabled, return
+            if (_enabled == enabled)
+            {
+                return true;
+            }
 
-        const uint ioOrMemoryPortDecodeEnableRegister = 0xD8;
-        const uint romAddressRange2Register = 0x98;
+            if (!isEntered)
+            {
+                // we didn't enter in the initial state block, enter now
+                isEntered = EnterMmio(_isaBridgeEc);
+                if (!isEntered)
+                {
+                    return false;
+                }
+            }
 
-        uint controllerFanControlAddress = _controllerBaseAddress + ControllerFanControlArea;
+            // write the value
+            byte writeValue = Convert.ToByte(enabled);
+            if (!_isaBridgeEc.WriteMmio(
+                superIoIndex: _mmio.Index,
+                offset: ControllerFanControlArea + ControllerEnableRegister,
+                size: 1,
+                value: writeValue))
+            {
+                return false;
+            }
 
-        Ring0.ReadPciConfig(intelIsaBridgeAddress, ioOrMemoryPortDecodeEnableRegister, out uint originalDecodeEnableRegister);
-        Ring0.ReadPciConfig(intelIsaBridgeAddress, romAddressRange2Register, out uint originalRomAddressRegister);
-
-        bool originalMmIoEnabled = false;
-        if (!enabled)
-        {
-            originalMmIoEnabled = ((int)originalDecodeEnableRegister & 1) == 0 || ((int)originalRomAddressRegister & 1) == 1;
-        }
-        else
-        {
-            originalMmIoEnabled = ((int)originalDecodeEnableRegister & 1) == 0 && ((int)originalRomAddressRegister & 1) == 1;
-        }
-
-        if (enabled == originalMmIoEnabled)
-        {
-            result = Enable(enabled, new IntPtr(controllerFanControlAddress));
-            Mutexes.ReleasePciBus();
-            return result;
-        }
-
-        uint lpcBiosDecodeEnable;
-        uint lpcMemoryRange;
-        if (enabled)
-        {
-            lpcBiosDecodeEnable = ioOrMemoryPortDecodeEnableRegister & ~(uint)(1 << 0);
-            lpcMemoryRange = romAddressRange2Register | (uint)(1 << 0);
-        }
-        else
-        {
-            lpcBiosDecodeEnable = Convert.ToUInt32(ioOrMemoryPortDecodeEnableRegister | (uint)(1 << 0));
-            lpcMemoryRange = Convert.ToUInt32(romAddressRange2Register & ~(uint)(1 << 0));
-        }
-
-        Ring0.WritePciConfig(intelIsaBridgeAddress, ioOrMemoryPortDecodeEnableRegister, lpcBiosDecodeEnable);
-        Ring0.WritePciConfig(intelIsaBridgeAddress, romAddressRange2Register, lpcMemoryRange);
-
-        result = Enable(enabled, new IntPtr(controllerFanControlAddress));
-
-        Mutexes.ReleasePciBus();
-
-        return result;
-    }
-
-    private bool AmdEnable(bool enabled)
-    {
-        if (!Mutexes.WaitPciBus(10))
-            return false;
-
-        // see D14F3x https://www.amd.com/system/files/TechDocs/55072_AMD_Family_15h_Models_70h-7Fh_BKDG.pdf
-        uint amdIsaBridgeAddress = Ring0.GetPciAddress(0x0, 0x14, 0x3);
-
-        const uint ioOrMemoryPortDecodeEnableRegister = 0x48;
-        const uint memoryRangePortEnableMask = 0x1 << 5;
-        const uint pciMemoryAddressForLpcTargetCyclesRegister = 0x60;
-        const uint romAddressRange2Register = 0x6C;
-
-        uint controllerFanControlAddress = _controllerBaseAddress + ControllerFanControlArea;
-
-        uint pciAddressStart = _controllerBaseAddress >> 0x10;
-        uint pciAddressEnd = pciAddressStart + 1;
-
-        uint enabledPciMemoryAddressRegister = pciAddressEnd << 0x10 | pciAddressStart;
-        uint enabledRomAddressRegister = 0xFFFFU << 0x10 | pciAddressEnd;
-
-        Ring0.ReadPciConfig(amdIsaBridgeAddress, ioOrMemoryPortDecodeEnableRegister, out uint originalDecodeEnableRegister);
-        Ring0.ReadPciConfig(amdIsaBridgeAddress, pciMemoryAddressForLpcTargetCyclesRegister, out uint originalPciMemoryAddressRegister);
-        Ring0.ReadPciConfig(amdIsaBridgeAddress, romAddressRange2Register, out uint originalRomAddressRegister);
-
-        bool originalMmIoEnabled = (originalDecodeEnableRegister & memoryRangePortEnableMask) != 0 &&
-                                   originalPciMemoryAddressRegister == enabledPciMemoryAddressRegister &&
-                                   originalRomAddressRegister == enabledRomAddressRegister;
-
-        if (!originalMmIoEnabled)
-        {
-            Ring0.WritePciConfig(amdIsaBridgeAddress, ioOrMemoryPortDecodeEnableRegister, originalDecodeEnableRegister | memoryRangePortEnableMask);
-            Ring0.WritePciConfig(amdIsaBridgeAddress, pciMemoryAddressForLpcTargetCyclesRegister, enabledPciMemoryAddressRegister);
-            Ring0.WritePciConfig(amdIsaBridgeAddress, romAddressRange2Register, enabledRomAddressRegister);
-        }
-
-        bool result = Enable(enabled, new IntPtr(controllerFanControlAddress));
-
-        // Restore previous values
-        if (!originalMmIoEnabled)
-        {
-            Ring0.WritePciConfig(amdIsaBridgeAddress, ioOrMemoryPortDecodeEnableRegister, originalDecodeEnableRegister);
-            Ring0.WritePciConfig(amdIsaBridgeAddress, pciMemoryAddressForLpcTargetCyclesRegister, originalPciMemoryAddressRegister);
-            Ring0.WritePciConfig(amdIsaBridgeAddress, romAddressRange2Register, originalRomAddressRegister);
-        }
-
-        Mutexes.ReleasePciBus();
-
-        return result;
-    }
-
-    private bool Enable(bool enabled, IntPtr pciMmIoBaseAddress)
-    {
-        // Map PCI memory to this process memory
-        if (!InpOut.Open())
-            return false;
-
-        IntPtr mapped = InpOut.MapMemory(pciMmIoBaseAddress, ControllerAddressRange, out IntPtr handle);
-
-        if (mapped == IntPtr.Zero)
-            return false;
-
-        bool current = Convert.ToBoolean(Marshal.ReadByte(mapped, ControllerEnableRegister));
-
-        _initialState ??= current;
-
-        // Update Controller State
-        if (current != enabled)
-        {
-            Marshal.WriteByte(mapped, ControllerEnableRegister, Convert.ToByte(enabled));
-            // Give it some time to see the change
             Thread.Sleep(500);
-        }
 
-        InpOut.UnmapMemory(handle, mapped);
-        return true;
+            _enabled = enabled;
+
+            return true;
+        }
+        finally
+        {
+            // safe exit from any return above
+            if (isEntered)
+            {
+                ExitMmio(_isaBridgeEc);
+            }
+        }
     }
 
     /// <summary>
@@ -193,7 +162,51 @@ internal class IsaBridgeGigabyteController : IGigabyteController
     /// </summary>
     public void Restore()
     {
-        if (_initialState.HasValue)
-            Enable(_initialState.Value);
+        if (_restoreEnabled is null)
+        {
+            return;
+        }
+
+        Enable(_restoreEnabled.Value);
+    }
+
+    public void Dispose()
+    {
+        Restore();
+        _isaBridgeEc.Close();
+    }
+
+    private static bool EnterMmio(IsaBridgeEc isaBridgeEc, MMIOState? currentState = null)
+    {
+        if (!isaBridgeEc.Map())
+        {
+            return false;
+        }
+
+        if (currentState is null || (currentState != MMIOState.MMIO_Enabled4E && currentState != MMIOState.MMIO_EnabledBoth))
+        {
+            if (!isaBridgeEc.TrySetState(MMIOState.MMIO_Enabled4E))
+            {
+                isaBridgeEc.Unmap();
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ExitMmio(IsaBridgeEc isaBridgeEc)
+    {
+        if (!isaBridgeEc.TrySetState(MMIOState.MMIO_Original))
+        {
+            return false;
+        }
+
+        if (!isaBridgeEc.Unmap())
+        {
+            return false;
+        }
+
+        return true;
     }
 }

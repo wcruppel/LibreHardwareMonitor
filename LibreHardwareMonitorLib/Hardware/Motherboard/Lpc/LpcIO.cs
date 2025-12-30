@@ -20,7 +20,7 @@ internal class LpcIO
 
     public LpcIO(Motherboard motherboard)
     {
-        if (!Ring0.IsOpen || !Mutexes.WaitIsaBus(100))
+        if (!Mutexes.WaitIsaBus(100))
             return;
 
         Detect(motherboard);
@@ -54,6 +54,7 @@ internal class LpcIO
 
         if (chipId is not 0 and not 0xffff)
         {
+            port.FindBars();
             port.SmscExit();
             ReportUnknownChip(port, "SMSC", chipId);
         }
@@ -67,11 +68,16 @@ internal class LpcIO
         {
             var port = new LpcPort(REGISTER_PORTS[i], VALUE_PORTS[i]);
 
-            if (DetectWinbondFintek(port, motherboard)) continue;
+            if (DetectWinbondFintek(port, motherboard))
+                continue;
 
-            if (DetectIT87(port, motherboard)) continue;
+            if (DetectIT87(port, motherboard))
+                continue;
 
-            if (DetectSmsc(port)) continue;
+            if (DetectSmsc(port))
+                continue;
+
+            port.Close();
         }
     }
 
@@ -83,6 +89,12 @@ internal class LpcIO
         }
 
         return null;
+    }
+
+    public void Close()
+    {
+        foreach (ISuperIO superIO in _superIOs)
+            superIO.Close();
     }
 
     private bool DetectWinbondFintek(LpcPort port, Motherboard motherboard)
@@ -367,7 +379,15 @@ internal class LpcIO
                         logicalDeviceNumber = WINBOND_NUVOTON_HARDWARE_MONITOR_LDN;
                         break;
                     case 0x2A:
-                        chip = Chip.NCT6796DR;
+                        switch (motherboard.Model)
+                        {
+                            case Model.X870E_NOVA_WIFI:
+                                chip = Chip.NCT5585D;
+                                break;
+                            default:
+                                chip = Chip.NCT6796DR;
+                                break;
+                        }
                         logicalDeviceNumber = WINBOND_NUVOTON_HARDWARE_MONITOR_LDN;
                         break;
                     case 0x51:
@@ -393,22 +413,36 @@ internal class LpcIO
                         switch (motherboard.Model)
                         {
                             case Model.B840P_PRO_WIFI:
+                            case Model.B840M_GAMING_PLUS_WIFI6E:
                             case Model.B850_GAMING_PLUS_WIFI:
+                            case Model.B850_GAMING_PLUS_WIFI6E:
+                            case Model.B850M_GAMING_PLUS_WIFI6E:
                             case Model.B850P_PRO_WIFI:
+                            case Model.B850MA_PRO_WIFI:
+                            case Model.B850MP_PRO_WIFI:
+                            case Model.B850M_MORTAR:
                             case Model.B850M_MORTAR_WIFI:
                             case Model.B850_TOMAHAWK_MAX_WIFI:
                             case Model.B850_EDGE_TI_WIFI:
+                            case Model.B850I_EDGE_TI_WIFI:
+                            case Model.B850MPOWER:
+                            case Model.B850S_PRO_WIFI6E:
                             case Model.X870_GAMING_PLUS_WIFI:
+                            case Model.X870E_GAMING_PLUS_WIFI:
                             case Model.X870_TOMAHAWK_WIFI:
                             case Model.X870P_PRO_WIFI:
+                            case Model.X870EP_PRO_WIFI:
                             case Model.X870E_TOMAHAWK_WIFI:
+                            case Model.X870E_TOMAHAWK_MAX_WIFI_PZ:
                             case Model.X870E_CARBON_WIFI:
                             case Model.X870E_EDGE_TI_WIFI:
                             case Model.X870E_GODLIKE:
                             case Model.Z890_ACE:
                             case Model.Z890_CARBON_WIFI:
+                            case Model.Z890_GAMING_PLUS_WIFI:
                             case Model.Z890_TOMAHAWK_WIFI:
                             case Model.Z890_EDGE_TI_WIFI:
+                            case Model.Z890I_EDGE_TI_WIFI:
                             case Model.Z890P_PRO_WIFI:
                             case Model.Z890A_PRO_WIFI:
                             case Model.Z890S_PRO_WIFI:
@@ -428,7 +462,16 @@ internal class LpcIO
                 switch (revision)
                 {
                     case 0x02:
-                        chip = Chip.NCT6799D;
+                        switch (motherboard.Model)
+                        {
+                            case Model.X870E_NOVA_WIFI:
+                                chip = Chip.NCT6796DS;
+                                break;
+                            default:
+                                chip = Chip.NCT6799D;
+                                break;
+                        }
+
                         logicalDeviceNumber = WINBOND_NUVOTON_HARDWARE_MONITOR_LDN;
                         break;
                     case 0x06:
@@ -450,6 +493,7 @@ internal class LpcIO
         }
         else
         {
+            port.FindBars();
             port.Select(logicalDeviceNumber);
             ushort address = port.ReadWord(BASE_ADDRESS_REGISTER);
             Thread.Sleep(1);
@@ -459,7 +503,7 @@ internal class LpcIO
 
             // disable the hardware monitor i/o space lock on NCT679XD chips
             if (address == verify &&
-                chip is Chip.NCT6791D or Chip.NCT6792D or Chip.NCT6792DA or Chip.NCT6793D or Chip.NCT6795D or Chip.NCT6796D or Chip.NCT6796DR or Chip.NCT6798D or Chip.NCT6797D or Chip.NCT6799D or Chip.NCT6701D)
+                chip is Chip.NCT6791D or Chip.NCT6792D or Chip.NCT6792DA or Chip.NCT6793D or Chip.NCT6795D or Chip.NCT6796D or Chip.NCT6796DR or Chip.NCT6796DS or Chip.NCT6798D or Chip.NCT6797D or Chip.NCT6799D or Chip.NCT6701D)
             {
                 port.NuvotonDisableIOSpaceLock();
             }
@@ -505,7 +549,7 @@ internal class LpcIO
                 case Chip.W83667HG:
                 case Chip.W83667HGB:
                 case Chip.W83687THF:
-                    _superIOs.Add(new W836XX(chip, revision, address));
+                    _superIOs.Add(new W836XX(port, chip, revision, address));
                     break;
 
                 case Chip.NCT610XD:
@@ -519,6 +563,7 @@ internal class LpcIO
                 case Chip.NCT6795D:
                 case Chip.NCT6796D:
                 case Chip.NCT6796DR:
+                case Chip.NCT6796DS:
                 case Chip.NCT6797D:
                 case Chip.NCT6798D:
                 case Chip.NCT6799D:
@@ -527,7 +572,8 @@ internal class LpcIO
                 case Chip.NCT6687DR:
                 case Chip.NCT6683D:
                 case Chip.NCT6701D:
-                    _superIOs.Add(new Nct677X(chip, revision, address, port));
+                case Chip.NCT5585D:
+                    _superIOs.Add(new Nct677X(port, chip, revision, address));
                     break;
 
                 case Chip.F71858:
@@ -553,7 +599,7 @@ internal class LpcIO
                         return false;
                     }
 
-                    _superIOs.Add(new F718XX(chip, address));
+                    _superIOs.Add(new F718XX(port, chip, address));
                     break;
             }
 
@@ -586,6 +632,7 @@ internal class LpcIO
             0x8625 => Chip.IT8625E,
             0x8628 => Chip.IT8628E,
             0x8631 => Chip.IT8631E,
+            0x8638 => Chip.IT8638E,
             0x8665 => Chip.IT8665E,
             0x8655 => Chip.IT8655E,
             0x8686 => Chip.IT8686E,
@@ -619,6 +666,7 @@ internal class LpcIO
         }
         else
         {
+            port.FindBars();
             port.Select(IT87_ENVIRONMENT_CONTROLLER_LDN);
 
             ushort address = port.ReadWord(BASE_ADDRESS_REGISTER);
@@ -646,7 +694,6 @@ internal class LpcIO
             }
 
             IGigabyteController gigabyteController = FindGigabyteEC(port, chip, motherboard);
-
             port.IT87Exit();
 
             if (address != verify || address < 0x100 || (address & 0xF007) != 0)
@@ -656,6 +703,8 @@ internal class LpcIO
                 _report.Append("Error: Invalid address 0x");
                 _report.AppendLine(address.ToString("X", CultureInfo.InvariantCulture));
                 _report.AppendLine();
+
+                gigabyteController?.Dispose();
 
                 return false;
             }
@@ -668,10 +717,13 @@ internal class LpcIO
                 _report.AppendLine(gpioAddress.ToString("X", CultureInfo.InvariantCulture));
                 _report.AppendLine();
 
+                gigabyteController?.Dispose();
+
                 return false;
             }
 
-            _superIOs.Add(new IT87XX(chip, address, gpioAddress, version, motherboard, gigabyteController));
+            _superIOs.Add(new IT87XX(port, chip, address, gpioAddress, version, motherboard, gigabyteController));
+
             return true;
         }
 
@@ -688,14 +740,14 @@ internal class LpcIO
 
         Vendor vendor = DetectVendor();
 
-        IGigabyteController gigabyteController = FindGigabyteECUsingSmfi(port, chip, vendor);
+        IGigabyteController gigabyteController = FindGigabyteECUsingSmfi(port);
         if (gigabyteController != null)
             return gigabyteController;
 
         // ECIO is only available on AMD motherboards with IT8791E/IT8792E/IT8795E.
         if (chip == Chip.IT8792E && vendor == Vendor.AMD)
         {
-            gigabyteController = EcioPortGigabyteController.TryCreate();
+            gigabyteController = EcioPortGigabyteController.TryCreate(port);
             if (gigabyteController != null)
                 return gigabyteController;
         }
@@ -715,8 +767,11 @@ internal class LpcIO
         }
     }
 
-    private IGigabyteController FindGigabyteECUsingSmfi(LpcPort port, Chip chip, Vendor vendor)
+    private IGigabyteController FindGigabyteECUsingSmfi(LpcPort port)
     {
+        const byte IT87_LD_ACTIVE_REGISTER = 0x30;
+        const byte IT87XX_SMFI_LDN = 0x0F;
+
         port.Select(IT87XX_SMFI_LDN);
 
         // Check if the SMFI logical device is enabled
@@ -728,32 +783,7 @@ internal class LpcIO
         if (enabled != enabledVerify || enabled == 0)
             return null;
 
-        // Read the host RAM address that maps to the Embedded Controller's RAM (two registers).
-        uint addressHi = 0;
-        uint addressHiVerify = 0;
-        uint address = port.ReadWord(IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER);
-        if (chip == Chip.IT87952E)
-            addressHi = port.ReadByte(IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER_HIGH);
-
-        Thread.Sleep(1);
-        uint addressVerify = port.ReadWord(IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER);
-        if (chip == Chip.IT87952E)
-            addressHiVerify = port.ReadByte(IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER_HIGH);
-
-        if ((address != addressVerify) || (addressHi != addressHiVerify))
-            return null;
-
-        // Address is xryy, Host Address is FFyyx000
-        // For IT87952E, Address is rzxryy, Host Address is (0xFC000000 | 0x0zyyx000)
-        uint hostAddress;
-        if (chip == Chip.IT87952E)
-            hostAddress = 0xFC000000;
-        else
-            hostAddress = 0xFF000000;
-
-        hostAddress |= (address & 0xF000) | ((address & 0xFF) << 16) | ((addressHi & 0xF) << 24);
-
-        return new IsaBridgeGigabyteController(hostAddress, vendor);
+        return IsaBridgeGigabyteController.TryCreate(out IsaBridgeGigabyteController controller) ? controller : null;
     }
 
     // ReSharper disable InconsistentNaming
@@ -768,16 +798,12 @@ internal class LpcIO
     private const byte IT87XX_GPIO_LDN = 0x07;
 
     // Shared Memory/Flash Interface
-    private const byte IT87XX_SMFI_LDN = 0x0F;
     private const byte WINBOND_NUVOTON_HARDWARE_MONITOR_LDN = 0x0B;
 
     private const ushort FINTEK_VENDOR_ID = 0x1934;
 
     private const byte FINTEK_VENDOR_ID_REGISTER = 0x23;
     private const byte IT87_CHIP_VERSION_REGISTER = 0x22;
-    private const byte IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER = 0xF5;
-    private const byte IT87_SMFI_HLPC_RAM_BASE_ADDRESS_REGISTER_HIGH = 0xFC;
-    private const byte IT87_LD_ACTIVE_REGISTER = 0x30;
 
     private readonly ushort[] REGISTER_PORTS = { 0x2E, 0x4E };
 

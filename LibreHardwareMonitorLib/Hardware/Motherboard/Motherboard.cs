@@ -94,11 +94,13 @@ public class Motherboard : IHardware
         SubHardware = subHardwareList.ToArray();
     }
 
+#pragma warning disable 67
     /// <inheritdoc />
     public event SensorEventHandler SensorAdded;
 
     /// <inheritdoc />
     public event SensorEventHandler SensorRemoved;
+#pragma warning restore 67
 
     /// <inheritdoc />
     public HardwareType HardwareType => HardwareType.Motherboard;
@@ -196,11 +198,13 @@ public class Motherboard : IHardware
     /// </summary>
     public void Close()
     {
-        _lmSensors?.Close();
         foreach (IHardware iHardware in SubHardware)
         {
             if (iHardware is Hardware hardware)
                 hardware.Close();
         }
+
+        _lmSensors?.Close();
+        _lpcIO?.Close();
     }
 }
