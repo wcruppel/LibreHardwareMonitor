@@ -19,6 +19,10 @@ public abstract class EmbeddedController : Hardware
     // https://dortania.github.io/Getting-Started-With-ACPI/Manual/dump.html
     private static readonly BoardInfo[] _boards =
     {
+        new (Model.TUF_GAMING_X870_PLUS_WIFI,
+            BoardFamily.Amd800,
+            ECSensor.TempVrm,
+            ECSensor.FanCPUOpt),
         new(Model.PRIME_X470_PRO,
             BoardFamily.Amd400,
             ECSensor.TempChipset,
@@ -253,6 +257,11 @@ public abstract class EmbeddedController : Hardware
             ECSensor.FanWaterPump,
             ECSensor.CurrCPU,
             ECSensor.VoltageCPU),
+        new(Model.Z170_PRO_GAMING,
+            BoardFamily.Intel100,
+            ECSensor.TempChipset,
+            ECSensor.TempVrm,
+            ECSensor.TempTSensor),
         new(Model.PRIME_Z690_A,
             BoardFamily.Intel600,
             ECSensor.TempTSensor,
@@ -394,6 +403,7 @@ public abstract class EmbeddedController : Hardware
             BoardFamily.Intel100, new Dictionary<ECSensor, EmbeddedControllerSource>
             {
                 { ECSensor.TempChipset, new EmbeddedControllerSource("Chipset", SensorType.Temperature, 0x003a) },
+                { ECSensor.TempVrm, new EmbeddedControllerSource("VRM", SensorType.Temperature, 0x003e) },
                 { ECSensor.TempTSensor, new EmbeddedControllerSource("T Sensor", SensorType.Temperature, 0x003d, blank: -40) },
                 { ECSensor.FanWaterPump, new EmbeddedControllerSource("Water Pump", SensorType.Fan, 0x00bc, 2) },
                 { ECSensor.CurrCPU, new EmbeddedControllerSource("CPU", SensorType.Current, 0x00f4) },

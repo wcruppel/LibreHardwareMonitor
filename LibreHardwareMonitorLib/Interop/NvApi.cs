@@ -23,6 +23,8 @@ internal static class NvApi
     public const int THERMAL_SENSOR_RESERVED_COUNT = 8;
     public const int THERMAL_SENSOR_TEMPERATURE_COUNT = 32;
 
+    public const uint NVAPI_I2C_SPEED_DEPRECATED = 0xFFFF;
+
     private const string DllName = "nvapi.dll";
     private const string DllName64 = "nvapi64.dll";
 
@@ -40,12 +42,15 @@ internal static class NvApi
     public static NvAPI_GPU_GetCoolerSettingsDelegate NvAPI_GPU_GetCoolerSettings { get; internal set; }
     public static NvAPI_GPU_GetDynamicPstatesInfoExDelegate NvAPI_GPU_GetDynamicPstatesInfoEx { get; internal set; }
     public static NvAPI_GPU_GetMemoryInfoDelegate NvAPI_GPU_GetMemoryInfo { get; internal set; }
+    public static NvAPI_GPU_GetMemoryInfoExDelegate NvAPI_GPU_GetMemoryInfoEx { get; internal set; }
     public static NvAPI_GPU_GetPCIIdentifiersDelegate NvAPI_GPU_GetPCIIdentifiers { get; internal set; }
     public static NvAPI_GPU_GetTachReadingDelegate NvAPI_GPU_GetTachReading { get; internal set; }
     public static NvAPI_GPU_GetThermalSettingsDelegate NvAPI_GPU_GetThermalSettings { get; internal set; }
     public static NvAPI_GPU_GetUsagesDelegate NvAPI_GPU_GetUsages { get; internal set; }
     public static NvAPI_GPU_SetCoolerLevelsDelegate NvAPI_GPU_SetCoolerLevels { get; internal set; }
     public static NvAPI_GPU_GetThermalSensorsDelegate NvAPI_GPU_GetThermalSensors { get; internal set; }
+    public static NvAPI_I2CReadExDelegate NvAPI_I2CReadEx { get; internal set; }
+    public static NvAPI_GPU_ClientVoltRailsGetStatusDelegate NvAPI_GPU_ClientVoltRailsGetStatus { get; internal set; }
 
     private static NvAPI_GetInterfaceVersionStringDelegate _nvAPI_GetInterfaceVersionString;
     private static NvAPI_GPU_GetFullNameDelegate _nvAPI_GPU_GetFullName;
@@ -80,6 +85,7 @@ internal static class NvApi
             NvAPI_GPU_GetCoolerSettings = GetDelegate<NvAPI_GPU_GetCoolerSettingsDelegate>(0xDA141340);
             NvAPI_GPU_SetCoolerLevels = GetDelegate<NvAPI_GPU_SetCoolerLevelsDelegate>(0x891FA0AE);
             NvAPI_GPU_GetMemoryInfo = GetDelegate<NvAPI_GPU_GetMemoryInfoDelegate>(0x774AA982);
+            NvAPI_GPU_GetMemoryInfoEx = GetDelegate<NvAPI_GPU_GetMemoryInfoExDelegate>(0xC0599498);
             NvAPI_GetDisplayDriverVersion = GetDelegate<NvAPI_GetDisplayDriverVersionDelegate>(0xF951A4D1);
             _nvAPI_GetInterfaceVersionString = GetDelegate<NvAPI_GetInterfaceVersionStringDelegate>(0x01053FA5);
             NvAPI_GPU_GetPCIIdentifiers = GetDelegate<NvAPI_GPU_GetPCIIdentifiersDelegate>(0x2DDFB66E);
@@ -90,6 +96,8 @@ internal static class NvApi
             NvAPI_GPU_ClientFanCoolersSetControl = GetDelegate<NvAPI_GPU_ClientFanCoolersSetControlDelegate>(0xA58971A5);
             NvAPI_GPU_ClientPowerTopologyGetStatus = GetDelegate<NvAPI_GPU_ClientPowerTopologyGetStatusDelegate>(0x0EDCF624E);
             NvAPI_GPU_GetThermalSensors = GetDelegate<NvAPI_GPU_GetThermalSensorsDelegate>(0x65FE3AAD);
+            NvAPI_I2CReadEx = GetDelegate<NvAPI_I2CReadExDelegate>(0x4D7B0709);
+            NvAPI_GPU_ClientVoltRailsGetStatus = GetDelegate<NvAPI_GPU_ClientVoltRailsGetStatusDelegate>(0x465F9BCF);
 
             IsAvailable = true;
         }
@@ -141,6 +149,9 @@ internal static class NvApi
     public delegate NvStatus NvAPI_GPU_GetMemoryInfoDelegate(NvDisplayHandle displayHandle, ref NvMemoryInfo nvMemoryInfo);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate NvStatus NvAPI_GPU_GetMemoryInfoExDelegate(NvPhysicalGpuHandle gpuHandle, ref NvMemoryInfoEx nvMemoryInfo);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate NvStatus NvAPI_GPU_GetPCIIdentifiersDelegate(NvPhysicalGpuHandle gpuHandle, out uint deviceId, out uint subSystemId, out uint revisionId, out uint extDeviceId);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -157,6 +168,12 @@ internal static class NvApi
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate NvStatus NvAPI_GPU_SetCoolerLevelsDelegate(NvPhysicalGpuHandle gpuHandle, int coolerIndex, ref NvCoolerLevels NvCoolerLevels);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate NvStatus NvAPI_I2CReadExDelegate(NvPhysicalGpuHandle gpuHandle, ref NvI2CInfo i2cInfo, ref uint readData);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate NvStatus NvAPI_GPU_ClientVoltRailsGetStatusDelegate(NvPhysicalGpuHandle gpuHandle, ref NvGpuClientVoltRailsStatus status);
 
     public enum NvFanControlMode : uint
     {
@@ -187,6 +204,17 @@ internal static class NvApi
         FrameBuffer, // Memory Controller
         VideoEngine, // Video Engine
         BusInterface // Bus
+    }
+
+    public enum NvI2CSpeed : uint
+    {
+        Default = 0,
+        Speed3Khz = 1,
+        Speed10Khz = 2,
+        Speed33Khz = 3,
+        Speed100Khz = 4,
+        Speed200Khz = 5,
+        Speed400Khz = 6
     }
 
     public static bool IsAvailable { get; private set; }
@@ -553,6 +581,24 @@ internal static class NvApi
         public uint CurrentAvailableDedicatedVideoMemory;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NvMemoryInfoEx
+    {
+        public uint Version;
+        public ulong DedicatedVideoMemory;
+        public ulong AvailableDedicatedVideoMemory;
+        public ulong SystemVideoMemory;
+        public ulong SharedSystemMemory;
+
+        public ulong CurrentAvailableDedicatedVideoMemory;
+
+        public ulong DedicatedVideoMemoryEvictionsSize;
+        public ulong DedicatedVideoMemoryEvictionCount;
+
+        public ulong DedicatedVideoMemoryPromotionsSize;
+        public ulong DedicatedVideoMemoryPromotionCount;
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
     internal struct NvDisplayDriverVersion
     {
@@ -575,6 +621,17 @@ internal static class NvApi
 
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = MAX_GPU_PUBLIC_CLOCKS)]
         public NvGpuClockFrequenciesDomain[] Clocks;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 0x4C)]
+    internal unsafe struct NvGpuClientVoltRailsStatus
+    {
+        [FieldOffset(0x00)] public uint Version;
+
+        [FieldOffset(0x04)] public fixed uint _reserved[17]; //Unknown
+
+        [FieldOffset(0x28)] public uint CoreMicrovolts;
+        [FieldOffset(0x2C)] public uint CoreMicrovoltsHigh;
     }
 
     internal enum NvGpuPublicClockId
@@ -610,6 +667,23 @@ internal static class NvApi
         public uint Frequency;
 
         public bool IsPresent => (_isPresent & 1) != 0;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 8)]
+    internal struct NvI2CInfo
+    {
+        public uint Version;
+        public uint DisplayMask;
+        public byte IsDDCPort;
+        public byte I2CDevAddress;
+        public IntPtr I2CRegAddress;
+        public uint RegAddrSize;
+        public IntPtr Data;
+        public uint Size;
+        public uint I2CSpeed;
+        public NvI2CSpeed I2CSpeedKhz;
+        public byte PortId;
+        public uint IsPortIdSet;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
