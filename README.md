@@ -18,14 +18,10 @@ You can read information from devices such as:
 - Network cards
 
 ## Where can I download it?
-You can download the latest release [here](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases). You can also install it using WinGet:
-
-```
-winget install LibreHardwareMonitor.LibreHardwareMonitor
-```
+You can download the latest release [here](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases).
 
 ### Nightly builds
-If you have a **GitHub** account, you can download nightly builds [here](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/actions). Otherwise, you can download the *latest* nightly build [here](https://nightly.link/LibreHardwareMonitor/LibreHardwareMonitor/workflows/master/master/LibreHardwareMonitor.zip).
+If you have a **GitHub** account, you can download nightly builds [here](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/actions). Otherwise, you can download the *latest* nightly build [here](https://nightly.link/LibreHardwareMonitor/LibreHardwareMonitor/workflows/master/master/LibreHardwareMonitor.Windows.Forms.zip).
 
 ## How can I help improve it?
 The LibreHardwareMonitor team welcomes feedback and contributions!<br/>
@@ -39,58 +35,53 @@ You can check if it works properly on your motherboard. For many manufacturers, 
 
 **Sample code**
 ```c#
+Computer computer = new Computer
+{
+    IsCpuEnabled = true,
+    IsGpuEnabled = true,
+    IsMemoryEnabled = true,
+    IsMotherboardEnabled = true,
+    IsControllerEnabled = true,
+    IsNetworkEnabled = true,
+    IsStorageEnabled = true,
+	IsPowerMonitorEnabled = true,
+};
+
+computer.Open();
+computer.Accept(new UpdateVisitor());
+
+foreach (IHardware hardware in computer.Hardware)
+{
+    Console.WriteLine("Hardware: {0}", hardware.Name);
+    
+    foreach (IHardware subhardware in hardware.SubHardware)
+    {
+        Console.WriteLine("\tSubhardware: {0}", subhardware.Name);
+        
+        foreach (ISensor sensor in subhardware.Sensors)
+            Console.WriteLine("\t\tSensor: {0}, value: {1}", sensor.Name, sensor.Value);
+    }
+
+    foreach (ISensor sensor in hardware.Sensors)
+        Console.WriteLine("\tSensor: {0}, value: {1}", sensor.Name, sensor.Value);
+}
+
+computer.Close();
+
 public class UpdateVisitor : IVisitor
 {
-    public void VisitComputer(IComputer computer)
-    {
-        computer.Traverse(this);
-    }
+    public void VisitComputer(IComputer computer) => computer.Traverse(this);
+
     public void VisitHardware(IHardware hardware)
     {
         hardware.Update();
-        foreach (IHardware subHardware in hardware.SubHardware) subHardware.Accept(this);
+        foreach (IHardware subHardware in hardware.SubHardware)
+            subHardware.Accept(this);
     }
+
     public void VisitSensor(ISensor sensor) { }
+
     public void VisitParameter(IParameter parameter) { }
-}
-
-public void Monitor()
-{
-    Computer computer = new Computer
-    {
-        IsCpuEnabled = true,
-        IsGpuEnabled = true,
-        IsMemoryEnabled = true,
-        IsMotherboardEnabled = true,
-        IsControllerEnabled = true,
-        IsNetworkEnabled = true,
-        IsStorageEnabled = true
-    };
-
-    computer.Open();
-    computer.Accept(new UpdateVisitor());
-
-    foreach (IHardware hardware in computer.Hardware)
-    {
-        Console.WriteLine("Hardware: {0}", hardware.Name);
-        
-        foreach (IHardware subhardware in hardware.SubHardware)
-        {
-            Console.WriteLine("\tSubhardware: {0}", subhardware.Name);
-            
-            foreach (ISensor sensor in subhardware.Sensors)
-            {
-                Console.WriteLine("\t\tSensor: {0}, value: {1}", sensor.Name, sensor.Value);
-            }
-        }
-
-        foreach (ISensor sensor in hardware.Sensors)
-        {
-            Console.WriteLine("\tSensor: {0}, value: {1}", sensor.Name, sensor.Value);
-        }
-    }
-    
-    computer.Close();
 }
 ```
 
@@ -102,6 +93,14 @@ Some sensors require administrator privileges to access the data. Restart your I
 
 We're **not affiliated** with `librehardwaremonitor.com`.<br>
 For your safety, please avoid using that site.
+
+## Acknowledgements
+
+Many thanks to all contributors listed below, and to JetBrains for providing tooling.
+
+<a href="https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=LibreHardwareMonitor/LibreHardwareMonitor" />
+</a>
 
 ## License
 LibreHardwareMonitor is free and open source software licensed under MPL 2.0. Some parts of LibreHardwareMonitor are licensed under different terms, see [THIRD-PARTY-LICENSES](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/blob/master/THIRD-PARTY-NOTICES.txt).
