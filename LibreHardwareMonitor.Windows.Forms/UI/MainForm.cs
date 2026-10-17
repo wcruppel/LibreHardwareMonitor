@@ -30,9 +30,10 @@ public sealed partial class MainForm : Form
     private readonly SensorGadget _gadget;
     private readonly Logger _logger;
     private readonly UserRadioGroup _loggingInterval;
+    private readonly UserRadioGroup _smartUpdateCycle;
     private readonly UserRadioGroup _updateInterval;
-    private readonly UserOption _throttleAtaUpdate;
     private readonly UserOption _logSensors;
+    private readonly UserOption _excludeUsbDevices;
     private readonly UserOption _forceDriveWakeup;
     private readonly UserOption _minimizeOnClose;
     private readonly UserOption _minimizeToTray;
@@ -204,7 +205,7 @@ public sealed partial class MainForm : Form
             try
             {
 
-                using Stream resourceStream = typeof(MainForm).Assembly.GetManifestResourceStream("LibreHardwareMonitor.Resources.PawnIO_setup.exe");
+                using Stream resourceStream = typeof(MainForm).Assembly.GetManifestResourceStream("LibreHardwareMonitor.Windows.Forms.Resources.PawnIO_setup.exe");
                 using FileStream fileStream = new(destination, FileMode.Create, FileAccess.Write);
                 resourceStream.CopyTo(fileStream);
 
@@ -272,6 +273,9 @@ public sealed partial class MainForm : Form
 
         _readFanControllersSensors = new UserOption("fanControllerMenuItem", true, fanControllerMenuItem, _settings);
         _readFanControllersSensors.Changed += delegate { _computer.IsControllerEnabled = _readFanControllersSensors.Value; };
+
+        _excludeUsbDevices = new UserOption("excludeUsbDevicesItem", false, excludeUsbDevicesItem, _settings);
+        _excludeUsbDevices.Changed += delegate { StorageDevice.ExcludeUsbDevices = _excludeUsbDevices.Value; };
 
         _readHddSensors = new UserOption("hddMenuItem", true, hddMenuItem, _settings);
         _readHddSensors.Changed += delegate { _computer.IsStorageEnabled = _readHddSensors.Value; };
@@ -442,19 +446,28 @@ public sealed partial class MainForm : Form
             }
         };
 
-        _throttleAtaUpdate = new UserOption("throttleAtaUpdateMenuItem", false, throttleAtaUpdateMenuItem, _settings);
-        _throttleAtaUpdate.Changed += (sender, e) =>
-        {
-            switch (_throttleAtaUpdate.Value)
-            {
-                case true:
-                    StorageDevice.ThrottleInterval = TimeSpan.FromSeconds(30);
-                    break;
+        _smartUpdateCycle = new UserRadioGroup("smartUpdateCycle",
+                                               0,
+                                               new[]
+                                               {
+                                                   smartUpdateFollowUpdateIntervalMenuItem,
+                                                   smartUpdate10CyclesMenuItem,
+                                                   smartUpdate25CyclesMenuItem,
+                                                   smartUpdate50CyclesMenuItem,
+                                                   smartUpdate100CyclesMenuItem
+                                               },
+                                               _settings);
 
-                case false:
-                    StorageDevice.ThrottleInterval = TimeSpan.Zero;
-                    break;
-            }
+        _smartUpdateCycle.Changed += (sender, e) =>
+        {
+            StorageDevice.SmartUpdateCycleCount = _smartUpdateCycle.Value switch
+            {
+                1 => 10,
+                2 => 25,
+                3 => 50,
+                4 => 100,
+                _ => 1
+            };
         };
 
         _sensorValuesTimeWindow = new UserRadioGroup("sensorValuesTimeWindow",

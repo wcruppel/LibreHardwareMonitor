@@ -11,14 +11,13 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using BlackSharp.Core.Converters;
-using BlackSharp.Core.Converters.Enums;
-using DiskInfoToolkit;
+using DiskInfoToolkit.Devices;
 using DiskInfoToolkit.Smart;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Storage.FileSystem;
 using Windows.Win32.System.Ioctl;
-using StorageDeviceDIT = DiskInfoToolkit.StorageDevice;
+using StorageDeviceDIT = DiskInfoToolkit.Devices.StorageDevice;
 using StorageDIT = DiskInfoToolkit.Storage;
 
 namespace LibreHardwareMonitor.Hardware.Storage;
@@ -37,6 +36,7 @@ public sealed class StorageDevice : Hardware, ISmart
     private long _lastWriteCount;
 
     private DateTime _lastUpdate = DateTime.MinValue;
+    private uint _smartUpdateCycle;
 
     private readonly List<StorageDeviceSensor> _sensors = new();
     private readonly List<SmartAttribute> _attributes = new();
@@ -71,13 +71,24 @@ public sealed class StorageDevice : Hardware, ISmart
     /// <remarks>See <see cref="StorageDIT.TryWakeUp"/> for more information.</remarks>
     public bool ForceWakeup { get; set; }
 
-    public static TimeSpan ThrottleInterval { get; set; }
+    /// <summary>
+    /// Gets or sets the number of regular update cycles between S.M.A.R.T. data refreshes.
+    /// </summary>
+    public static uint SmartUpdateCycleCount { get; set; } = 1;
+
+    /// <inheritdoc cref="StorageDIT.ExcludeUsbDevices"/>
+    public static bool ExcludeUsbDevices
+    {
+        get => StorageDIT.ExcludeUsbDevices;
+        set => StorageDIT.ExcludeUsbDevices = value;
+    }
 
     public override void Update()
     {
-        if (DateTime.UtcNow - _lastUpdate < ThrottleInterval)
+        bool refreshSmartData = ++_smartUpdateCycle >= Math.Max(SmartUpdateCycleCount, 1);
+        if (refreshSmartData)
         {
-            return;
+            _smartUpdateCycle = 0;
         }
 
         bool isDevicePoweredOn = _storage.IsDevicePowerOn.GetValueOrDefault(true);
@@ -94,7 +105,7 @@ public sealed class StorageDevice : Hardware, ISmart
         //No updates for sleeping devices if we should not wake it up
         if (isDevicePoweredOn)
         {
-            hasChanges = StorageDIT.Refresh(_storage);
+            hasChanges = StorageDIT.Refresh(_storage, refreshSmartData);
         }
 
         if (!hasChanges)
@@ -324,13 +335,20 @@ public sealed class StorageDevice : Hardware, ISmart
             AddSensor("Power On Hours", 24, false, SensorType.Factor, s => s.PowerOnHours.GetValueOrDefault());
         }
 
+        if (_storage.SmartAttributeProfile == SmartAttributeProfile.NVMe)
+        {
+            AddSensor("Available Spare", 25, false, SensorType.Level, s => (s.SmartAttributes.FirstOrDefault(sae => sae.ID == 0xE2)?.CurrentValue).GetValueOrDefault());
+            AddSensor("Available Spare Threshold", 26, false, SensorType.Level, s => (s.SmartAttributes.FirstOrDefault(sae => sae.ID == 0xE3)?.CurrentValue).GetValueOrDefault());
+            AddSensor("Percentage Used", 27, false, SensorType.Level, s => (s.SmartAttributes.FirstOrDefault(sae => sae.ID == 0xE4)?.CurrentValue).GetValueOrDefault());
+        }
+
         _usageSensor = new Sensor("Used Space", 30, SensorType.Load, this, _settings);
         _freeSpaceSensor = new Sensor("Free Space", 31, SensorType.Data, this, _settings);
         ToggleSpaceSensors();
 
         var totalSpaceSensor = new Sensor("Total Space", 32, SensorType.Data, this, _settings)
         {
-            Value = (float)DataUnitConverter.ToGigaByte(_storage.DiskSizeBytes.GetValueOrDefault(), DataUnit.Byte)
+            Value = _storage.DiskSizeBytes.GetValueOrDefault()
         };
         ActivateSensor(totalSpaceSensor);
 
@@ -373,10 +391,7 @@ public sealed class StorageDevice : Hardware, ISmart
 
     private void AddSensor(string name, int index, bool defaultHidden, SensorType sensorType, GetStorageDeviceSensorValue getValue)
     {
-        var sensor = new StorageDeviceSensor(name, index, defaultHidden, sensorType, this, _settings, getValue)
-        {
-            Value = 0
-        };
+        var sensor = new StorageDeviceSensor(name, index, defaultHidden, sensorType, this, _settings, getValue);
 
         ActivateSensor(sensor);
         _sensors.Add(sensor);
@@ -401,13 +416,8 @@ public sealed class StorageDevice : Hardware, ISmart
         }
 
         _perfRead.Update(diskPerformance.ReadTime, diskPerformance.QueryTime);
-        _sensorDiskReadActivity.Value = (float)_perfRead.Result;
-
         _perfWrite.Update(diskPerformance.WriteTime, diskPerformance.QueryTime);
-        _sensorDiskWriteActivity.Value = (float)_perfWrite.Result;
-
         _perfTotal.Update(diskPerformance.IdleTime, diskPerformance.QueryTime);
-        _sensorDiskTotalActivity.Value = (float)(100 - _perfTotal.Result);
 
         long readCount = diskPerformance.BytesRead;
         long readDiff = readCount - _lastReadCount;
@@ -420,6 +430,11 @@ public sealed class StorageDevice : Hardware, ISmart
         long currentTime = Stopwatch.GetTimestamp();
         if (_lastTime != 0)
         {
+            // The disk counters are totals, so the first sample only sets the baseline.
+            _sensorDiskReadActivity.Value = (float)_perfRead.Result;
+            _sensorDiskWriteActivity.Value = (float)_perfWrite.Result;
+            _sensorDiskTotalActivity.Value = (float)(100 - _perfTotal.Result);
+
             double timeDeltaSeconds = (double)(currentTime - _lastTime) / Stopwatch.Frequency;
 
             if (timeDeltaSeconds > 0)
@@ -455,7 +470,7 @@ public sealed class StorageDevice : Hardware, ISmart
         {
             // Set sensor value
             _usageSensor.Value = 100.0f - (100.0f * _storage.TotalPartitionFreeSpaceBytes / _storage.DiskSizeBytes);
-            _freeSpaceSensor.Value = (float)DataUnitConverter.ToGigaByte(_storage.TotalPartitionFreeSpaceBytes.GetValueOrDefault(), DataUnit.Byte);
+            _freeSpaceSensor.Value = _storage.TotalPartitionFreeSpaceBytes.GetValueOrDefault();
         }
         else
         {

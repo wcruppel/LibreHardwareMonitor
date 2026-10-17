@@ -6,7 +6,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
-using DiskInfoToolkit;
+using DiskInfoToolkit.Monitoring;
 using StorageDIT = DiskInfoToolkit.Storage;
 
 namespace LibreHardwareMonitor.Hardware.Storage;
@@ -22,9 +22,6 @@ internal class StorageGroup : IGroup, IHardwareChanged
 
     public StorageGroup(ISettings settings)
     {
-        if (Software.OperatingSystem.IsUnix)
-            return;
-
         _settings = settings;
 
         AddHardware(settings);
@@ -66,7 +63,15 @@ internal class StorageGroup : IGroup, IHardwareChanged
         }
     }
 
-    public void Close() { }
+    public void Close()
+    {
+        StorageDIT.DevicesChanged -= OnStoragesChanged;
+
+        foreach (var hardware in _hardware)
+        {
+            hardware.Close();
+        }
+    }
 
     public string GetReport() => null;
 }
